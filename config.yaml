@@ -1,0 +1,11 @@
+repositories:
+  build_config: "red-hat-data-services/RHOAI-Build-Config"
+  disconnected_helper: "red-hat-data-services/rhoai-disconnected-install-helper"
+
+defaults:
+  output_format: "markdown"
+  include_security_analysis: true
+  cache_duration: 3600  # 1 hour
+
+github:
+  token: null  # Set via GITHUB_TOKEN environment variable
