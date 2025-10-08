@@ -5,7 +5,7 @@ from collections import defaultdict
 from typing import Dict, List
 
 from models import (
-    Analysis, ComponentInfo, ImageClassification, ImageReference,
+    Analysis, ComponentInfo, ImageClassification, ImageReference, ImageVariant,
     RegistryAnalysis, SecurityInsights, VersionComparison
 )
 
@@ -94,6 +94,9 @@ class ImageAnalyzer:
         # Detect base OS
         self._detect_base_os(images)
 
+        # Detect variants (architecture, Python version, GPU support, etc.)
+        self._detect_variants(images)
+
         # Separate by classification
         infrastructure_images = [img for img in images if img.classification == ImageClassification.INFRASTRUCTURE]
         workload_images = [img for img in images if img.classification == ImageClassification.WORKLOAD]
@@ -143,10 +146,86 @@ class ImageAnalyzer:
                 image.base_os = 'RHEL8'
             elif '-rhel9' in image_name or 'rhel9' in image_name:
                 image.base_os = 'RHEL9'
+            elif '-ubi8' in image_name or 'ubi8' in image_name:
+                image.base_os = 'UBI8'
+            elif '-ubi9' in image_name or 'ubi9' in image_name:
+                image.base_os = 'UBI9'
             elif '-ubi' in image_name or 'ubi' in image_name:
                 image.base_os = 'UBI'
             else:
                 image.base_os = 'Unknown'
+
+    def _detect_variants(self, images: List[ImageReference]) -> None:
+        """Detect image variants (architecture, Python version, GPU support, etc.)."""
+        for image in images:
+            image_name = image.repository.lower()
+            full_name = image.full_reference.lower()
+
+            # Detect architecture
+            if 'amd64' in image_name or 'x86_64' in image_name:
+                image.architecture = 'amd64'
+            elif 'arm64' in image_name or 'aarch64' in image_name:
+                image.architecture = 'arm64'
+            elif 'cuda' in image_name or 'rocm' in image_name:
+                image.architecture = 'amd64'  # GPU variants are typically x86_64
+            else:
+                image.architecture = 'amd64'  # Default assumption for most images
+
+            # Detect Python version
+            python_patterns = [
+                (r'py311', '3.11'),
+                (r'py312', '3.12'),
+                (r'py310', '3.10'),
+                (r'py39', '3.9'),
+                (r'python3\.11', '3.11'),
+                (r'python3\.12', '3.12'),
+                (r'python3\.10', '3.10'),
+                (r'python-3\.11', '3.11'),
+                (r'python-3\.12', '3.12'),
+            ]
+
+            for pattern, version in python_patterns:
+                if re.search(pattern, image_name):
+                    image.python_version = version
+                    break
+
+            # Detect GPU support
+            if 'cuda' in image_name:
+                # Try to extract CUDA version
+                cuda_match = re.search(r'cuda[-_]?(\d+)\.?(\d+)?', image_name)
+                if cuda_match:
+                    major = cuda_match.group(1)
+                    minor = cuda_match.group(2) or '0'
+                    image.gpu_support = f'CUDA {major}.{minor}'
+                else:
+                    image.gpu_support = 'CUDA'
+            elif 'rocm' in image_name:
+                # Try to extract ROCm version
+                rocm_match = re.search(r'rocm[-_]?(\d+)\.?(\d+)?', image_name)
+                if rocm_match:
+                    major = rocm_match.group(1)
+                    minor = rocm_match.group(2) or '0'
+                    image.gpu_support = f'ROCm {major}.{minor}'
+                else:
+                    image.gpu_support = 'ROCm'
+            elif 'gpu' in image_name:
+                image.gpu_support = 'GPU'
+            else:
+                image.gpu_support = 'CPU'
+
+            # Detect variant type
+            if 'workbench' in image_name:
+                image.variant_type = 'workbench'
+            elif 'pipeline' in image_name:
+                image.variant_type = 'pipeline'
+            elif 'notebook' in image_name:
+                image.variant_type = 'notebook'
+            elif 'runtime' in image_name:
+                image.variant_type = 'runtime'
+            elif 'serving' in image_name:
+                image.variant_type = 'serving'
+            else:
+                image.variant_type = 'base'
 
     def _group_into_components(self, images: List[ImageReference]) -> List[ComponentInfo]:
         """Group images into functional components with enhanced granularity."""
@@ -172,17 +251,58 @@ class ImageAnalyzer:
             if not assigned:
                 component_groups['other'].append(image)
 
-        # Create ComponentInfo objects with better naming and descriptions
+        # Create ComponentInfo objects with variant analysis
         for component_type, img_list in component_groups.items():
             if img_list:
+                variants = self._analyze_component_variants(img_list)
+                unique_digests = len(set(img.digest for img in img_list if img.digest))
+
                 components.append(ComponentInfo(
                     name=self._get_component_display_name(component_type),
                     images=img_list,
                     category=component_type,
-                    description=self._get_component_description(component_type)
+                    description=self._get_component_description(component_type),
+                    unique_digests=unique_digests,
+                    total_references=len(img_list),
+                    variants=variants
                 ))
 
         return components
+
+    def _analyze_component_variants(self, images: List[ImageReference]) -> List[ImageVariant]:
+        """Analyze variants within a component."""
+        # Group by digest to identify unique builds
+        digest_groups = defaultdict(list)
+        for img in images:
+            if img.digest:
+                digest_groups[img.digest].append(img)
+
+        variants = []
+        for digest, img_list in digest_groups.items():
+            # Use the first image as the representative
+            representative = img_list[0]
+
+            # Get all sources for this digest
+            sources = list(set(img.source for img in img_list))
+
+            # Determine base name (remove digest)
+            base_name = representative.image.split('@')[0] if '@' in representative.image else representative.image
+
+            variants.append(ImageVariant(
+                base_name=base_name,
+                digest=digest,
+                sources=sources,
+                architecture=representative.architecture,
+                python_version=representative.python_version,
+                gpu_support=representative.gpu_support,
+                base_os=representative.base_os,
+                variant_type=representative.variant_type,
+                reference_count=len(img_list)
+            ))
+
+        # Sort by reference count (most referenced first)
+        variants.sort(key=lambda v: v.reference_count, reverse=True)
+        return variants
 
     def _get_component_display_name(self, component_type: str) -> str:
         """Get user-friendly display name for component type."""

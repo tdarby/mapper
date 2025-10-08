@@ -67,7 +67,8 @@ class RHOAIReporter:
                        compare_with: Optional[str] = None,
                        output_format: str = "markdown",
                        output_file: Optional[str] = None,
-                       granular: bool = True) -> None:
+                       granular: bool = True,
+                       show_variants: bool = True) -> None:
         """Generate RHOAI container image report."""
 
         with Progress(
@@ -200,8 +201,9 @@ class RHOAIReporter:
 @click.option('--output', 'output_file', help='Output file path')
 @click.option('--config', 'config_path', default='config.yaml', help='Configuration file path')
 @click.option('--granular/--no-granular', default=True, help='Use granular component classification (default: True)')
+@click.option('--show-variants/--no-show-variants', default=True, help='Show detailed variant analysis (default: True)')
 def main(rhoai_version: Optional[str], ocp_version: Optional[str], compare_with: Optional[str],
-         output_format: str, output_file: Optional[str], config_path: str, granular: bool):
+         output_format: str, output_file: Optional[str], config_path: str, granular: bool, show_variants: bool):
     """RHOAI Container Image Reporter - Generate reports for RHOAI/OCP version combinations."""
 
     console.print("[bold blue]RHOAI Container Image Reporter[/bold blue]")
@@ -214,7 +216,8 @@ def main(rhoai_version: Optional[str], ocp_version: Optional[str], compare_with:
             compare_with=compare_with,
             output_format=output_format,
             output_file=output_file,
-            granular=granular
+            granular=granular,
+            show_variants=show_variants
         )
     except RHOAIReporterError as e:
         console.print(f"[red]Error: {e}[/red]")

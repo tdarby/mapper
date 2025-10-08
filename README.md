@@ -28,6 +28,12 @@ pip install -r requirements.txt
 # Compare versions
 ./rhoai_reporter.py --rhoai-version 2.25 --compare-with 2.24
 
+# Enhanced variant analysis (default) - shows architecture, Python versions, GPU support
+./rhoai_reporter.py --show-variants
+
+# Disable variant analysis for simpler output
+./rhoai_reporter.py --no-show-variants
+
 # Use legacy broad classification (less detailed)
 ./rhoai_reporter.py --no-granular
 ```
@@ -56,6 +62,14 @@ export GITHUB_TOKEN=your_token_here
 - **Registry Analysis**: Trusted vs community registries with detailed breakdown
 - **Security Insights**: Deprecated images, unverified sources, actionable recommendations
 
+### Enhanced Variant Analysis
+- **Architecture Detection**: Automatically identifies amd64, arm64, and GPU-optimized variants
+- **Python Version Detection**: Extracts Python 3.11, 3.12, and other version specifications
+- **GPU Support Analysis**: Detects CUDA versions, ROCm support, and CPU-only variants
+- **Variant Type Classification**: Distinguishes notebook, pipeline, workbench, runtime, and serving variants
+- **Build Relationship Mapping**: Explains why multiple SHA256 digests exist for the same component
+- **Multi-Source Tracking**: Shows which images appear in OLM catalogs vs disconnected helper lists
+
 ### Output Formats
 - **Markdown**: Human-readable reports with tables and sections
 - **JSON**: Structured data for programmatic access
@@ -63,29 +77,43 @@ export GITHUB_TOKEN=your_token_here
 ## Example Output
 
 ```markdown
-# RHOAI 2.24 / OCP 4.18 Container Image Report
+# RHOAI 2.23 / OCP 4.18 Container Image Report
 
 ## Summary
-- **Total Images**: 104 (44 infrastructure + 60 workload)
-- **Registries**: quay.io (100), registry.redhat.io (4)
-- **Base OS**: RHEL9 (6), Unknown (98)
-- **Estimated Size**: ~10.4GB total download
-- **Components**: 18 granular functional areas identified
+- **Total Images**: 205 (125 infrastructure + 80 workload)
+- **Registries**: quay.io (203), registry.redhat.io (2)
+- **Base OS**: Unknown (135), RHEL9 (10), UBI9 (60)
+- **Estimated Size**: ~20.5GB total download
+- **Components**: 22 functional areas identified
 
-## Granular Component Breakdown
-| Component                    | Images | Category            | Description                                    |
-|------------------------------|--------|---------------------|------------------------------------------------|
-| CUDA Notebooks              | 20     | cuda_notebooks      | GPU-accelerated notebook environments         |
-| Minimal Notebooks           | 10     | minimal_notebooks   | Lightweight base notebook environments        |
-| PyTorch Notebooks           | 10     | pytorch_notebooks   | PyTorch-optimized notebook environments       |
-| Training                     | 8      | training           | Distributed training frameworks               |
-| TrustyAI Notebooks          | 8      | trustyai_notebooks | Notebook environments for TrustyAI workflows |
-| vLLM                        | 6      | vllm               | High-performance LLM inference engine         |
-| Code Server                 | 6      | code_server        | Web-based VS Code development environments    |
-| ROCm Notebooks              | 6      | rocm_notebooks     | AMD ROCm-accelerated notebook environments    |
-| Ray                         | 4      | ray                | Ray distributed computing framework           |
-| InstructLab                 | 2      | instructlab        | Red Hat InstructLab for LLM training        |
-| Text Generation Inference   | 2      | text_generation_inference | Optimized text generation inference server |
+## Component Overview
+Component | Images (Unique) | Type | Description & Variants
+--- | --- | --- | ---
+CUDA Notebooks | 28 (10 unique) | Cuda Notebooks | GPU-accelerated notebook environments wi... | Variants: [CUDA, notebook], [CUDA, notebook], [CUDA, notebook] (+7 more)
+PyTorch Runtimes | 16 (8 unique) | Pytorch Runtimes | PyTorch runtime environments and serving... | Variants: [Py3.11, CUDA, UBI9, pipeline], [Py3.12, CUDA, UBI9, pipeline], [Py3.11, ROCm, UBI9, pipeline] (+5 more)
+TrustyAI Notebooks | 11 (4 unique) | Trustyai Notebooks | Notebook environments optimized for Trus... | Variants: [notebook], [notebook], [notebook] (+1 more)
+vLLM | 6 (3 unique) | Vllm | High-performance LLM inference engine op...
+Ray | 4 (2 unique) | Ray | Ray distributed computing framework for ...
+InstructLab | 2 (1 unique) | Instructlab | Red Hat InstructLab for large language m...
+Caikit NLP | 2 (1 unique) | Caikit Nlp | IBM Caikit framework for NLP model servi...
+OpenVINO | 2 (1 unique) | Openvino | Intel OpenVINO model serving and optimiz...
+
+## Detailed Component Breakdown
+
+### Infrastructure Components (125 images)
+
+#### PyTorch Runtimes (16 images, 8 unique)
+*PyTorch runtime environments and serving infrastructure*
+
+**Build Variants:**
+- `sha256:2072d...` (Python 3.11, CUDA, UBI9, Pipeline) [Sources: disconnected_helper]
+- `sha256:72ff2...` (Python 3.12, CUDA, UBI9, Pipeline) [Sources: disconnected_helper]
+- `sha256:35a5e...` (Python 3.11, ROCm, UBI9, Pipeline) [Sources: disconnected_helper]
+- `sha256:a3fd2...` (Python 3.12, ROCm, UBI9, Pipeline) [Sources: disconnected_helper]
+- `sha256:891ca...` (Python 3.11, CUDA, UBI9, Workbench) [Sources: disconnected_helper]
+- `sha256:81945...` (Python 3.12, CUDA, UBI9, Workbench) [Sources: disconnected_helper]
+- `sha256:bb928...` (Python 3.11, ROCm, UBI9, Workbench) [Sources: disconnected_helper]
+- `sha256:8ac82...` (Python 3.12, ROCm, UBI9, Workbench) [Sources: disconnected_helper]
 ```
 
 ## Architecture
@@ -144,10 +172,13 @@ github:
 
 ```bash
 # Test with known version
-./rhoai_reporter.py --rhoai-version 2.24 --ocp-version 4.18
+./rhoai_reporter.py --rhoai-version 2.23 --ocp-version 4.18
 
-# Generate granular test report
-./rhoai_reporter.py --format json --output test_report.json
+# Generate granular test report with variant analysis
+./rhoai_reporter.py --format json --show-variants --output test_report.json
+
+# Test markdown report with detailed variant breakdowns
+./rhoai_reporter.py --format markdown --show-variants --output test_report.md
 
 # Compare versions for validation
 ./rhoai_reporter.py --rhoai-version 2.25 --compare-with 2.24
@@ -155,6 +186,8 @@ github:
 # Query specific components from JSON output
 jq '.components[] | select(.category == "vllm")' test_report.json
 jq '.components[] | select(.name | contains("TrustyAI"))' test_report.json
+jq '.components[] | .variants[] | select(.python_version == "3.11")' test_report.json
+jq '.components[] | .variants[] | select(.gpu_support | contains("CUDA"))' test_report.json
 ```
 
 ## Error Handling
@@ -184,17 +217,24 @@ This basic implementation validates the data extraction approach and provides im
 - ✅ Generate useful reports in <30 seconds
 - ✅ Handle missing versions gracefully
 - ✅ Classify >90% of images correctly with granular component breakdown
-- ✅ Identify 18+ specific components (vLLM, TrustyAI, Ray, InstructLab, etc.)
+- ✅ Identify 22+ specific components (vLLM, TrustyAI, Ray, InstructLab, etc.)
 - ✅ Provide actionable security insights with registry trust analysis
 - ✅ Support both granular and legacy classification modes
+- ✅ Enhanced variant analysis with architecture and build detection
+- ✅ Multi-source data integration and relationship mapping
 - ✅ Validate feasibility of comprehensive approach
 
 ## Key Achievements
 
-**Real-World Validation Results (RHOAI 2.24):**
-- **104 images** parsed and classified in <30 seconds
-- **18 granular components** identified vs. 3 broad categories previously
-- **Specific LLM frameworks** properly separated: vLLM (6), Caikit NLP (2), Text Generation Inference (2)
-- **Notebook specializations** clearly categorized: CUDA (20), PyTorch (10), TrustyAI (8), ROCm (6)
+**Real-World Validation Results (RHOAI 2.23):**
+- **205 images** parsed and classified in <30 seconds
+- **22 granular components** identified vs. 3 broad categories previously
+- **Enhanced variant analysis** shows unique digests vs total references
+- **Architecture detection** identifies amd64/arm64 and GPU variants
+- **Python version extraction** from py311/py312 patterns
+- **GPU support analysis** detects CUDA, ROCm specifications
+- **Build relationship mapping** explains multiple SHA256 digests for same component
+- **Specific LLM frameworks** properly separated: vLLM (6), Caikit NLP (2), Text Generation Inference (2), InstructLab (2)
+- **Notebook specializations** clearly categorized: CUDA (28), PyTorch (14), TrustyAI (11), ROCm (6)
 - **Distributed computing** components isolated: Ray (4), Training frameworks (8)
-- **Security insights** show 96% community registry usage requiring attention
+- **Security insights** show 99% community registry usage requiring attention

@@ -32,6 +32,10 @@ class ImageReference:
     classification: ImageClassification = ImageClassification.UNKNOWN
     category: Optional[str] = None
     base_os: Optional[str] = None
+    architecture: Optional[str] = None
+    python_version: Optional[str] = None
+    gpu_support: Optional[str] = None
+    variant_type: Optional[str] = None  # workbench, pipeline, notebook, runtime
 
     @property
     def full_reference(self) -> str:
@@ -88,6 +92,19 @@ class ImageReference:
 
 
 @dataclass
+class ImageVariant:
+    """Represents different variants of the same base image."""
+    base_name: str
+    digest: str
+    sources: List[ImageSource]
+    architecture: Optional[str] = None
+    python_version: Optional[str] = None
+    gpu_support: Optional[str] = None
+    base_os: Optional[str] = None
+    variant_type: Optional[str] = None
+    reference_count: int = 1
+
+@dataclass
 class ComponentInfo:
     """Information about a component and its images."""
     name: str
@@ -95,6 +112,9 @@ class ComponentInfo:
     category: str
     description: Optional[str] = None
     upstream_repo: Optional[str] = None
+    unique_digests: int = 0
+    total_references: int = 0
+    variants: List[ImageVariant] = None
 
 
 @dataclass

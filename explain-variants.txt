@@ -1,0 +1,93 @@
+Can you explain why there are multiple sha ids for the same image? multiple examples can be seen in the report.json file
+
+● Great observation! The multiple SHA IDs for what appears to be the "same image" is actually revealing important information about how RHOAI
+  manages container images across different contexts. Let me explain what's happening:
+
+  Why Multiple SHA256 Digests Appear
+
+  1. Different Image Variants/Builds
+
+  Even though they have the same base name (e.g., vllm), these are actually different builds of the same component:
+
+  "quay.io/modh/vllm@sha256:3934334c8270789a08f0b40a7a54cc712864fff0838ac2990a3b5711e175eef5"
+  "quay.io/modh/vllm@sha256:bf8437d698f91ce8127dd2ea43b2bd01091d567fc49cc9b99bd56bea27cfdc45"
+  "quay.io/modh/vllm@sha256:db766445a1e3455e1bf7d16b008f8946fcbe9f277377af7abb81ae358805e7e2"
+
+  Each SHA256 represents a unique image build with potentially different:
+  - Python versions (3.11 vs 3.12)
+  - Base OS versions (RHEL 8 vs RHEL 9)
+  - CUDA/ROCm versions
+  - Security patches applied at different times
+  - Dependency versions
+
+  2. Multi-Source Data Collection
+
+  The reporter pulls from two different repositories:
+  - OLM Catalogs (infrastructure context)
+  - Disconnected Helper (air-gapped deployment context)
+
+  The same logical component may appear in both sources but reference different specific builds suited for different deployment scenarios.
+
+  3. Version Evolution Over Time
+
+  RHOAI maintains multiple concurrent versions of components:
+  - Current stable build
+  - Previous stable build (for rollback)
+  - Security-patched variants
+  - Architecture-specific builds (x86_64, ARM64)
+  
+   4. Deployment Context Variations
+
+  Looking at the CUDA Notebooks example:
+  "quay.io/modh/cuda-notebooks@sha256:00c53599f..." // Build A
+  "quay.io/modh/cuda-notebooks@sha256:0e57a0b7..."  // Build B  
+  "quay.io/modh/cuda-notebooks@sha256:3da74d73..."  // Build C
+
+  These likely represent:
+  - Different CUDA versions (11.8, 12.0, 12.1)
+  - Different Python versions (3.11, 3.12)
+  - Different base image versions
+
+  Real-World Example Analysis
+
+  From your report.json, the vLLM component shows 6 images, but only 3 unique digests:
+  - Each digest appears twice (once from OLM catalog, once from disconnected helper)
+  - The 3 different digests likely represent different build variants
+
+  Why This Matters for RHOAI Operations
+
+  ✅ Deployment Flexibility
+
+  - Production: Use most stable digest
+  - Development: Use latest digest
+  - Air-gapped: Use specific validated digests
+ ✅ Security Management
+
+  - Vulnerability tracking: Each digest has its own security profile
+  - Patch management: Update specific digests without affecting others
+  - Rollback capability: Previous digests remain available
+
+  ✅ Compatibility Matrix
+
+  - OpenShift 4.18: May use digest A
+  - OpenShift 4.19: May use digest B
+  - OpenShift 4.20: May use digest C
+
+  Improving the Reporter
+
+  We could enhance the analysis to show these relationships more clearly:
+
+  # Show unique vs duplicate analysis
+  ./rhoai_reporter.py --rhoai-version 2.23 --show-variants
+
+  # Example enhanced output:
+  # vLLM Component:
+  #   - Base name: quay.io/modh/vllm
+  #   - Unique builds: 3 
+  #   - Total references: 6 (3 from OLM, 3 from disconnected helper)
+  #   - Variants: CUDA 11.8, CUDA 12.0, CUDA 12.1
+
+  This multi-digest approach is actually a feature, not a bug - it provides the granular control needed for enterprise AI/ML deployments where
+  different environments may require different optimized builds of the same logical component.
+
+

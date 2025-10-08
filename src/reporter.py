@@ -62,7 +62,23 @@ class ReportGenerator:
                     "name": comp.name,
                     "category": comp.category,
                     "image_count": len(comp.images),
+                    "unique_digests": comp.unique_digests,
+                    "total_references": comp.total_references,
                     "description": comp.description,
+                    "variants": [
+                        {
+                            "base_name": variant.base_name,
+                            "digest": variant.digest[:12] + "...",  # Truncated for readability
+                            "sources": [source.value for source in variant.sources],
+                            "architecture": variant.architecture,
+                            "python_version": variant.python_version,
+                            "gpu_support": variant.gpu_support,
+                            "base_os": variant.base_os,
+                            "variant_type": variant.variant_type,
+                            "reference_count": variant.reference_count
+                        }
+                        for variant in (comp.variants or [])
+                    ],
                     "images": [img.full_reference for img in comp.images]
                 }
                 for comp in analysis.components
@@ -108,19 +124,42 @@ class ReportGenerator:
 ## Component Overview
 """
 
-        # Add component summary table
+        # Add enhanced component summary table
         component_data = []
         for comp in sorted(analysis.components, key=lambda x: len(x.images), reverse=True):
+            # Create variant summary
+            variant_info = ""
+            if comp.variants and len(comp.variants) > 1:
+                variant_details = []
+                for variant in comp.variants[:3]:  # Show top 3 variants
+                    details = []
+                    if variant.python_version:
+                        details.append(f"Py{variant.python_version}")
+                    if variant.gpu_support and variant.gpu_support != 'CPU':
+                        details.append(variant.gpu_support)
+                    if variant.base_os and variant.base_os != 'Unknown':
+                        details.append(variant.base_os)
+                    if variant.variant_type and variant.variant_type != 'base':
+                        details.append(variant.variant_type)
+
+                    if details:
+                        variant_details.append(f"[{', '.join(details)}]")
+
+                if variant_details:
+                    variant_info = f" | Variants: {', '.join(variant_details)}"
+                    if len(comp.variants) > 3:
+                        variant_info += f" (+{len(comp.variants) - 3} more)"
+
             component_data.append([
                 comp.name,
-                len(comp.images),
+                f"{len(comp.images)} ({comp.unique_digests} unique)",
                 comp.category.replace('_', ' ').title(),
-                comp.description[:50] + "..." if comp.description and len(comp.description) > 50 else comp.description or ""
+                (comp.description[:40] + "..." if comp.description and len(comp.description) > 40 else comp.description or "") + variant_info
             ])
 
         component_table = tabulate(
             component_data,
-            headers=["Component", "Images", "Type", "Description"],
+            headers=["Component", "Images (Unique)", "Type", "Description & Variants"],
             tablefmt="pipe"
         )
 
@@ -154,15 +193,35 @@ class ReportGenerator:
         for comp in sorted(infra_components, key=lambda x: len(x.images), reverse=True):
             infra_images = [img for img in comp.images if img.classification.value == "infrastructure"]
             if infra_images:
-                detailed += f"#### {comp.name} ({len(infra_images)} images)\n"
+                detailed += f"#### {comp.name} ({len(infra_images)} images, {comp.unique_digests} unique)\n"
                 detailed += f"*{comp.description}*\n\n"
 
-                for img in infra_images[:5]:  # Show first 5 images
+                # Show variant breakdown if applicable
+                if comp.variants and len(comp.variants) > 1:
+                    detailed += "**Build Variants:**\n"
+                    for variant in comp.variants:
+                        variant_details = []
+                        if variant.python_version:
+                            variant_details.append(f"Python {variant.python_version}")
+                        if variant.gpu_support and variant.gpu_support != 'CPU':
+                            variant_details.append(variant.gpu_support)
+                        if variant.base_os and variant.base_os != 'Unknown':
+                            variant_details.append(variant.base_os)
+                        if variant.variant_type and variant.variant_type != 'base':
+                            variant_details.append(variant.variant_type.title())
+
+                        detail_str = f" ({', '.join(variant_details)})" if variant_details else ""
+                        sources_str = f" [Sources: {', '.join(s.value for s in variant.sources)}]"
+                        detailed += f"- `{variant.digest[:12]}...`{detail_str}{sources_str}\n"
+                    detailed += "\n"
+
+                # Show sample images
+                for img in infra_images[:3]:  # Show first 3 images
                     semantic_name = f" ({img.semantic_name})" if img.semantic_name else ""
                     detailed += f"- {img.full_reference}{semantic_name}\n"
 
-                if len(infra_images) > 5:
-                    detailed += f"- ... and {len(infra_images) - 5} more images\n"
+                if len(infra_images) > 3:
+                    detailed += f"- ... and {len(infra_images) - 3} more images\n"
 
                 detailed += "\n"
 
@@ -178,26 +237,37 @@ class ReportGenerator:
         for comp in sorted(workload_components, key=lambda x: len(x.images), reverse=True):
             workload_images = [img for img in comp.images if img.classification.value == "workload"]
             if workload_images:
-                detailed += f"#### {comp.name} ({len(workload_images)} images)\n"
+                detailed += f"#### {comp.name} ({len(workload_images)} images, {comp.unique_digests} unique)\n"
                 detailed += f"*{comp.description}*\n\n"
 
-                # Group by category
-                categories = {}
-                for img in workload_images:
-                    category = img.category or "general"
-                    if category not in categories:
-                        categories[category] = []
-                    categories[category].append(img)
+                # Show variant breakdown if applicable
+                if comp.variants and len(comp.variants) > 1:
+                    detailed += "**Build Variants:**\n"
+                    for variant in comp.variants:
+                        variant_details = []
+                        if variant.python_version:
+                            variant_details.append(f"Python {variant.python_version}")
+                        if variant.gpu_support and variant.gpu_support != 'CPU':
+                            variant_details.append(variant.gpu_support)
+                        if variant.base_os and variant.base_os != 'Unknown':
+                            variant_details.append(variant.base_os)
+                        if variant.variant_type and variant.variant_type != 'base':
+                            variant_details.append(variant.variant_type.title())
+                        if variant.architecture and variant.architecture != 'amd64':
+                            variant_details.append(variant.architecture)
 
-                for category, imgs in categories.items():
-                    if len(categories) > 1:
-                        detailed += f"**{category.replace('_', ' ').title()}**: {len(imgs)} images\n"
+                        detail_str = f" ({', '.join(variant_details)})" if variant_details else ""
+                        sources_str = f" [Sources: {', '.join(s.value for s in variant.sources)}]"
+                        refs_str = f" ({variant.reference_count} refs)" if variant.reference_count > 1 else ""
+                        detailed += f"- `{variant.digest[:12]}...`{detail_str}{sources_str}{refs_str}\n"
+                    detailed += "\n"
 
-                    for img in imgs[:3]:  # Show first 3 per category
-                        detailed += f"- {img.full_reference}\n"
+                # Show sample images (fewer for workload due to typically more images)
+                for img in workload_images[:2]:
+                    detailed += f"- {img.full_reference}\n"
 
-                    if len(imgs) > 3:
-                        detailed += f"- ... and {len(imgs) - 3} more\n"
+                if len(workload_images) > 2:
+                    detailed += f"- ... and {len(workload_images) - 2} more images\n"
 
                 detailed += "\n"
 
