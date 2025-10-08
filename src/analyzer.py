@@ -46,16 +46,44 @@ class ImageAnalyzer:
             'registry.access.redhat.com'
         ]
 
-        # Component mapping patterns
+        # Enhanced granular component mapping patterns
         self.component_patterns = {
-            'platform_core': [r'odh-operator', r'odh-dashboard', r'odh-deployer'],
+            # Infrastructure components
+            'platform_core': [r'odh-operator', r'odh-dashboard', r'odh-deployer', r'ose-oauth-proxy'],
             'notebook_management': [r'odh-notebook-controller', r'kf-notebook-controller'],
-            'model_serving': [r'modelmesh', r'kserve', r'model-controller'],
-            'data_pipelines': [r'ml-pipelines', r'data-science-pipelines', r'argo'],
-            'distributed_computing': [r'kuberay', r'codeflare', r'training-operator'],
-            'development_environments': [r'notebook', r'workbench', r'code-server'],
-            'ml_runtimes': [r'tensorflow', r'pytorch', r'cuda'],
-            'specialized_ai': [r'openvino', r'trustyai']
+            'model_serving_infrastructure': [r'modelmesh', r'kserve', r'model-controller'],
+            'data_pipelines_infrastructure': [r'ml-pipelines', r'data-science-pipelines', r'argo'],
+            'distributed_computing_infrastructure': [r'kuberay', r'codeflare', r'training-operator'],
+
+            # Notebook and development environments
+            'minimal_notebooks': [r'odh-minimal-notebook-container'],
+            'pytorch_notebooks': [r'odh-pytorch-notebook', r'pytorch-notebook'],
+            'generic_data_science_notebooks': [r'odh-generic-data-science-notebook'],
+            'cuda_notebooks': [r'cuda-notebooks'],
+            'trustyai_notebooks': [r'odh-trustyai-notebook', r'trustyai-notebook'],
+            'rocm_notebooks': [r'rocm-notebooks'],
+            'code_server': [r'codeserver'],
+
+            # LLM and text generation
+            'vllm': [r'^vllm$', r'/vllm@'],
+            'text_generation_inference': [r'text-generation-inference'],
+            'caikit_nlp': [r'caikit-nlp'],
+            'caikit_tgis_serving': [r'caikit-tgis-serving'],
+            'fms_hf_tuning': [r'fms-hf-tuning'],
+            'instructlab': [r'instructlab'],
+
+            # Distributed computing and training
+            'ray': [r'^ray$', r'/ray@'],
+            'training': [r'^training$', r'/training@'],
+
+            # AI/ML specialized frameworks
+            'trustyai_runtime': [r'odh-trustyai-hf-detector-runtime', r'trustyai.*runtime'],
+            'openvino': [r'openvino_model_server', r'openvino'],
+
+            # Base images and runtimes
+            'tensorflow_runtimes': [r'tensorflow', r'tf-'],
+            'pytorch_runtimes': [r'pytorch(?!.*notebook)'],  # PyTorch but not notebooks
+            'cuda_runtimes': [r'cuda(?!.*notebook)'],        # CUDA but not notebooks
         }
 
     def analyze_images(self, images: List[ImageReference], rhoai_version: str, ocp_version: str) -> Analysis:
@@ -121,29 +149,34 @@ class ImageAnalyzer:
                 image.base_os = 'Unknown'
 
     def _group_into_components(self, images: List[ImageReference]) -> List[ComponentInfo]:
-        """Group images into functional components."""
+        """Group images into functional components with enhanced granularity."""
         components = []
         component_groups = defaultdict(list)
 
-        # Group images by component patterns
+        # Group images by component patterns with more precise matching
         for image in images:
             image_name = image.repository.lower()
+            full_image = image.full_reference.lower()
             assigned = False
 
+            # Check patterns in order of specificity (most specific first)
             for component_type, patterns in self.component_patterns.items():
-                if any(pattern in image_name for pattern in patterns):
-                    component_groups[component_type].append(image)
-                    assigned = True
+                for pattern in patterns:
+                    if re.search(pattern, image_name) or re.search(pattern, full_image):
+                        component_groups[component_type].append(image)
+                        assigned = True
+                        break
+                if assigned:
                     break
 
             if not assigned:
                 component_groups['other'].append(image)
 
-        # Create ComponentInfo objects
+        # Create ComponentInfo objects with better naming and descriptions
         for component_type, img_list in component_groups.items():
             if img_list:
                 components.append(ComponentInfo(
-                    name=component_type.replace('_', ' ').title(),
+                    name=self._get_component_display_name(component_type),
                     images=img_list,
                     category=component_type,
                     description=self._get_component_description(component_type)
@@ -151,18 +184,91 @@ class ImageAnalyzer:
 
         return components
 
+    def _get_component_display_name(self, component_type: str) -> str:
+        """Get user-friendly display name for component type."""
+        display_names = {
+            # Infrastructure
+            'platform_core': 'Platform Core',
+            'notebook_management': 'Notebook Management',
+            'model_serving_infrastructure': 'Model Serving Infrastructure',
+            'data_pipelines_infrastructure': 'Data Pipelines Infrastructure',
+            'distributed_computing_infrastructure': 'Distributed Computing Infrastructure',
+
+            # Notebooks
+            'minimal_notebooks': 'Minimal Notebooks',
+            'pytorch_notebooks': 'PyTorch Notebooks',
+            'generic_data_science_notebooks': 'Generic Data Science Notebooks',
+            'cuda_notebooks': 'CUDA Notebooks',
+            'trustyai_notebooks': 'TrustyAI Notebooks',
+            'rocm_notebooks': 'ROCm Notebooks',
+            'code_server': 'Code Server',
+
+            # LLM and Text Generation
+            'vllm': 'vLLM',
+            'text_generation_inference': 'Text Generation Inference',
+            'caikit_nlp': 'Caikit NLP',
+            'caikit_tgis_serving': 'Caikit TGIS Serving',
+            'fms_hf_tuning': 'FMS HuggingFace Tuning',
+            'instructlab': 'InstructLab',
+
+            # Distributed Computing
+            'ray': 'Ray',
+            'training': 'Training',
+
+            # AI/ML Frameworks
+            'trustyai_runtime': 'TrustyAI Runtime',
+            'openvino': 'OpenVINO',
+
+            # Base Runtimes
+            'tensorflow_runtimes': 'TensorFlow Runtimes',
+            'pytorch_runtimes': 'PyTorch Runtimes',
+            'cuda_runtimes': 'CUDA Runtimes',
+
+            'other': 'Other Components'
+        }
+        return display_names.get(component_type, component_type.replace('_', ' ').title())
+
     def _get_component_description(self, component_type: str) -> str:
-        """Get description for component type."""
+        """Get detailed description for component type."""
         descriptions = {
-            'platform_core': 'Core platform services and user interface',
-            'notebook_management': 'Interactive development environment management',
-            'model_serving': 'ML model deployment and inference',
-            'data_pipelines': 'Workflow orchestration and data processing',
-            'distributed_computing': 'Distributed ML training and batch processing',
-            'development_environments': 'Interactive development and experimentation',
-            'ml_runtimes': 'Model training and development environments',
-            'specialized_ai': 'Specialized model execution and analysis',
-            'other': 'Other components'
+            # Infrastructure
+            'platform_core': 'Core platform services including operators, dashboards, and authentication',
+            'notebook_management': 'Controllers and services for managing notebook lifecycles',
+            'model_serving_infrastructure': 'Infrastructure for ML model deployment and serving',
+            'data_pipelines_infrastructure': 'Pipeline orchestration and workflow management systems',
+            'distributed_computing_infrastructure': 'Infrastructure for distributed computing and training',
+
+            # Notebooks
+            'minimal_notebooks': 'Lightweight base notebook environments for development',
+            'pytorch_notebooks': 'PyTorch-optimized notebook environments for deep learning',
+            'generic_data_science_notebooks': 'General-purpose data science notebook environments',
+            'cuda_notebooks': 'GPU-accelerated notebook environments with CUDA support',
+            'trustyai_notebooks': 'Notebook environments optimized for TrustyAI workflows',
+            'rocm_notebooks': 'AMD ROCm-accelerated notebook environments',
+            'code_server': 'Web-based VS Code development environments',
+
+            # LLM and Text Generation
+            'vllm': 'High-performance LLM inference engine optimized for throughput',
+            'text_generation_inference': 'Optimized text generation inference server',
+            'caikit_nlp': 'IBM Caikit framework for NLP model serving',
+            'caikit_tgis_serving': 'Caikit Text Generation Inference Server',
+            'fms_hf_tuning': 'Foundation Model Stack HuggingFace fine-tuning framework',
+            'instructlab': 'Red Hat InstructLab for large language model training',
+
+            # Distributed Computing
+            'ray': 'Ray distributed computing framework for ML workloads',
+            'training': 'Distributed training frameworks and utilities',
+
+            # AI/ML Frameworks
+            'trustyai_runtime': 'TrustyAI explainability and bias detection runtime',
+            'openvino': 'Intel OpenVINO model serving and optimization toolkit',
+
+            # Base Runtimes
+            'tensorflow_runtimes': 'TensorFlow runtime environments and serving infrastructure',
+            'pytorch_runtimes': 'PyTorch runtime environments and serving infrastructure',
+            'cuda_runtimes': 'NVIDIA CUDA runtime environments for GPU acceleration',
+
+            'other': 'Components that do not fit into predefined categories'
         }
         return descriptions.get(component_type, 'Unknown component type')
 
